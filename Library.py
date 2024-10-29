@@ -3,7 +3,7 @@ import os
 import csv
 from docx import Document
 import pandas as pd
-
+        
 class Library:
     def __init__(self):
         self.conn = sqlite3.connect('library.db')
@@ -11,6 +11,7 @@ class Library:
         self.create_table()
 
     def create_table(self):
+    # Создаем таблицу, если она не существует
         self.cursor.execute(''' 
             CREATE TABLE IF NOT EXISTS books (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,27 +22,36 @@ class Library:
                 type TEXT NOT NULL
             )
         ''')
+        self.cursor.execute("PRAGMA table_info(books)")
+        columns = [col[1] for col in self.cursor.fetchall()]
+        if 'description' not in columns:
+            self.cursor.execute("ALTER TABLE books ADD COLUMN description TEXT")
         self.conn.commit()
 
-    def add_book(self, title, author, genre, year, book_type):
+    def add_book(self, title, author, genre, year, book_type, description):
         self.cursor.execute(''' 
-            INSERT INTO books (title, author, genre, year, type)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (title, author, genre, year, book_type))
+            INSERT INTO books (title, author, genre, year, type, description)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (title, author, genre, year, book_type, description))
         self.conn.commit()
         print(f'\n✅ {book_type.capitalize()} "{title}" успешно добавлена!')
 
-    def remove_book(self, title):
-        self.cursor.execute(''' 
-            DELETE FROM books WHERE title = ? 
-        ''', (title,))
-        if self.cursor.rowcount > 0:
+    def remove_book(self, book_id):
+        self.cursor.execute('SELECT * FROM books WHERE id = ?', (book_id,))
+        book = self.cursor.fetchone()
+        if book:
+            self.cursor.execute('DELETE FROM books WHERE id = ?', (book_id,))
             self.conn.commit()
-            print(f'\n✅ Книга/комикс/манга "{title}" успешно удалена!')
+            print(f'\n✅ Книга/комикс/манга с ID {book_id} успешно удалена!')
         else:
-            print(f'\n❌ Книга/комикс/манга "{title}" не найдена.')
+            print(f'\n❌ Книга/комикс/манга с ID {book_id} не найдена.')
 
     def edit_book(self, book_id, field, new_value):
+    # Проверка, является ли поле допустимым
+        if field not in ["title", "author", "genre", "year", "type", "description"]:
+            print("🚫 Неверное поле для редактирования.")
+            return
+    # Обновляем запись
         self.cursor.execute(f'UPDATE books SET {field} = ? WHERE id = ?', (new_value, book_id))
         self.conn.commit()
         print(f'\n✅ Книга/комикс/манга с ID {book_id} успешно обновлена!')
@@ -54,22 +64,24 @@ class Library:
             print("\n📚 Ваша библиотека пуста.")
             return
         print(f"\n📚 Ваша домашняя библиотека ({book_count}): ")
-        print("-" * 60)
-        for i, book in enumerate(books, start=1):
-            print(f'{i}. 📖 "{book[1]}"')
+        print("-" * 80)
+        for book in books:
+            print(f'ID {book[0]}. 📖 "{book[1]}"')
             print(f'   Автор: {book[2]} | Жанр: {book[3]} | Год: {book[4]} | Тип: {book[5]}')
-            print("-" * 60)
+            print(f'   Описание: {book[6] if book[6] else "Нет описания"}')
+            print("-" * 80)
 
     def save_to_txt(self):
         with open('library.txt', 'w', encoding='utf-8') as f:
             f.write("📚 Ваша домашняя библиотека:\n")
-            f.write("-" * 60 + "\n")
+            f.write("-" * 80 + "\n")
             self.cursor.execute('SELECT * FROM books')
             books = self.cursor.fetchall()
             for i, book in enumerate(books, start=1):
                 f.write(f'{i}. 📖 "{book[1]}"\n')
                 f.write(f'   Автор: {book[2]} | Жанр: {book[3]} | Год: {book[4]} | Тип: {book[5]}\n')
-                f.write("-" * 60 + "\n")
+                f.write(f'   Описание: {book[6] if book[6] else "Нет описания"}\n')
+                f.write("-" * 80 + "\n")
         print("✅📄 Библиотека сохранена в файл library.txt.")
 
     def save_to_word(self):
@@ -80,13 +92,14 @@ class Library:
         for i, book in enumerate(books, start=1):
             document.add_paragraph(f'{i}. 📖 "{book[1]}"')
             document.add_paragraph(f'   Автор: {book[2]} | Жанр: {book[3]} | Год: {book[4]} | Тип: {book[5]}')
-            document.add_paragraph("-" * 60)
+            document.add_paragraph(f'   Описание: {book[6] if book[6] else "Нет описания"}')
+            document.add_paragraph("-" * 80)
         document.save('library.docx')
         print("✅📄 Библиотека сохранена в файл library.docx.")
 
     def save_to_excel(self):
         books = self.cursor.execute('SELECT * FROM books').fetchall()
-        df = pd.DataFrame(books, columns=['ID', 'Название', 'Автор', 'Жанр', 'Год', 'Тип'])
+        df = pd.DataFrame(books, columns=['ID', 'Название', 'Автор', 'Жанр', 'Год', 'Тип', 'Описание'])
         df.to_excel('library.xlsx', index=False)
         print("✅📄 Библиотека сохранена в файл library.xlsx.")
 
@@ -96,9 +109,9 @@ class Library:
         with open('library.html', 'w', encoding='utf-8') as f:
             f.write('<html><head><title>Ваша библиотека</title></head><body>')
             f.write('<h1>📚 Ваша домашняя библиотека:</h1>')
-            f.write('<table border="1"><tr><th>№</th><th>Название</th><th>Автор</th><th>Жанр</th><th>Год</th><th>Тип</th></tr>')
+            f.write('<table border="1"><tr><th>№</th><th>Название</th><th>Автор</th><th>Жанр</th><th>Год</th><th>Тип</th><th>Описание</th></tr>')
             for i, book in enumerate(books, start=1):
-                f.write(f'<tr><td>{i}</td><td>{book[1]}</td><td>{book[2]}</td><td>{book[3]}</td><td>{book[4]}</td><td>{book[5]}</td></tr>')
+                f.write(f'<tr><td>{i}</td><td>{book[1]}</td><td>{book[2]}</td><td>{book[3]}</td><td>{book[4]}</td><td>{book[5]}</td><td>{book[6] if book[6] else "Нет описания"}</td></tr>')
             f.write('</table></body></html>')
         print("✅📄 Библиотека сохранена в файл library.html.")
 
@@ -211,17 +224,37 @@ class Library:
                 genre = input("Введите жанр: ")
                 year = int(input("Введите год: "))
                 book_type = input("Введите тип (книга/комикс/манга): ")
-                self.add_book(title, author, genre, year, book_type)
+                description = input("Введите описание (необязательно): ")
+                self.add_book(title, author, genre, year, book_type, description)
 
             elif choice == "4":
-                title = input("Введите название книги/комикса/манги для удаления: ")
-                self.remove_book(title)
+                try:
+                    book_id = int(input("Введите ID книги/комикса/манги для удаления: "))
+                    self.remove_book(book_id)
+                except ValueError:
+                    print("🚫 Неверный формат ID. Пожалуйста, введите числовое значение.")
 
             elif choice == "5":
                 book_id = int(input("Введите ID книги/комикса/манги для редактирования: "))
-                field = input("Введите поле для редактирования (title, author, genre, year, type): ")
-                new_value = input("Введите новое значение: ")
-                self.edit_book(book_id, field, new_value)
+                print("\nВыберите поле для редактирования:")
+                print("1. Название")
+                print("2. Автор")
+                print("3. Жанр")
+                print("4. Год")
+                print("5. Тип")
+                print("6. Описание")
+                field_choice = input("👉 Выберите поле (1-6): ")
+                fields = ["title", "author", "genre", "year", "type", "description"]
+            
+                if field_choice in [str(i + 1) for i in range(len(fields))]:
+                    field = fields[int(field_choice) - 1]
+                    new_value = input(f"Введите новое значение для {field}: ")
+                # Если поле — год, преобразуем значение в число
+                    if field == "year":
+                        new_value = int(new_value)
+                    self.edit_book(book_id, field, new_value)
+                else:
+                    print("🚫 Неверный вариант.")
 
             elif choice == "6":
                 filename = input("Введите имя файла для импорта (например, books.csv): ")
@@ -242,7 +275,7 @@ class Library:
 
             else:
                 print("🚫 Неверный вариант.")
-
+    
 if __name__ == "__main__":
     library = Library()
     library.menu()
